@@ -1,22 +1,32 @@
+# backend/app/main.py
+import os # Import the os module to access environment variables
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import auth, users, market, trading, portfolio
 
-app = FastAPI(title="Simulated Trading Platform API")
+# Updated API Title
+app = FastAPI(title="TradeCraft Simulator API")
 
 # --- CORS Middleware Configuration ---
-# List of origins that are allowed to make requests
-origins = [
-    "http://localhost:3000", # Allow Next.js frontend
-    # You might add other origins if needed, e.g., a deployed frontend URL
-]
+
+# Read the single allowed origin from the environment variable
+# This URL should be set to your deployed Cloudflare Pages URL in the Cloud Run environment settings
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN")
+
+origins = []
+if FRONTEND_ORIGIN:
+    print(f"INFO: Allowing CORS requests from origin: {FRONTEND_ORIGIN}")
+    origins.append(FRONTEND_ORIGIN)
+else:
+    print("WARNING: FRONTEND_ORIGIN environment variable not set.")
+    # origins.append("http://localhost:3000") # Uncomment if needed for local dev testing
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, # Allows specified origins
-    allow_credentials=True, # Allows cookies/authorization headers
-    allow_methods=["*"],    # Allows all methods (GET, POST, PUT, DELETE, OPTIONS, etc.)
-    allow_headers=["*"],    # Allows all headers
+    allow_origins=origins,      # Use the dynamically populated list
+    allow_credentials=True,   # Allow cookies/auth headers
+    allow_methods=["*"],      # Allow all standard methods
+    allow_headers=["*"],      # Allow all standard headers
 )
 # --- End CORS Configuration ---
 
@@ -30,4 +40,4 @@ app.include_router(portfolio.router, prefix=f"{api_prefix}/portfolio", tags=["Po
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the Trading Platform API - Go to /docs for API documentation"}
+    return {"message": "Welcome to the TradeCraft Simulator API - Go to /docs for API documentation"}
