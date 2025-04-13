@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # --- Database Service ---
+  db:
+    image: postgres:15
+    container_name: trading_db
+    environment:
+      POSTGRES_USER: trading_user
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: trading_platform_db
+    ports:
+      # Keep the working port mapping (host:container)
+      - "5439:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - trading_network # Assign to custom network
+
+  # --- Backend Service ---
+  backend:
+    build: ./backend # Use backend/Dockerfile
+    container_name: trading_backend
+    env_file:
+      - ./backend/.env # Load backend environment variables (DB_URL, SECRET_KEY)
+    ports:
+      - "8000:8000" # Map host 8000 to container 8000
+    depends_on:
+      - db # Wait for db to be healthy
+    networks:
+      - trading_network # Assign to custom network
+
+  # --- Frontend Service ---
+  frontend:
+    build:
+       context: ./frontend # Use frontend/Dockerfile
+       args:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+    container_name: trading_frontend
+    ports:
+      - "3000:3000" # Map host 3000 to container 3000
+    environment:
+        # Override or set runtime environment variables
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+        PORT: 3000
+        NODE_ENV: production
+    depends_on:
+       - backend
+    networks:
+      - trading_network # Assign to custom network
+
+# --- Volumes Definition ---
+volumes:
+  postgres_data:
+
+# --- Networks Definition ---
+networks:
+  trading_network: # Define a custom bridge network
+    driver: bridge
