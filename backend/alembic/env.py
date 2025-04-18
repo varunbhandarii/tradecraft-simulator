@@ -4,6 +4,7 @@ from app.models.user import User
 from app.models.account import Account
 from app.models.holding import Holding
 from app.models.trade import Trade
+from app.models.pending_order import PendingOrder
 
 import os
 from dotenv import load_dotenv
