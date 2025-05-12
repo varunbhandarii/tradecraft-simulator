@@ -1,70 +1,123 @@
-import yfinance as yf
 import pandas as pd
-from fastapi import HTTPException, status
 import logging
-import time   # For caching
+import time
 from typing import Optional, Dict, Any
+from datetime import datetime, timedelta
 
-# Configure logging
+# Alpaca SDK imports
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockLatestTradeRequest, StockBarsRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.enums import DataFeed
+
+from app.core.config import ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY, ALPACA_PAPER_TRADING
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- In-Memory Cache ---
-# Structure: {'function_symbol': {'timestamp': float, 'data': Any}}
+# --- Alpaca API Client Initialization ---
+if ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY:
+    stock_client = StockHistoricalDataClient(
+        api_key=ALPACA_API_KEY_ID,
+        secret_key=ALPACA_API_SECRET_KEY
+    )
+    logger.info("Alpaca StockHistoricalDataClient initialized.")
+else:
+    stock_client = None
+    logger.error("Alpaca API Keys not found. Market data service will be non-functional.")
+
+# --- Cache Configuration ---
 _cache: Dict[str, Dict[str, Any]] = {}
-CACHE_DURATION_SECONDS = 60 * 1 # Cache data for 1 minute
+CACHE_SUCCESS_DURATION_SECONDS = 60 * 15  # Cache successful data for 15 minutes
+CACHE_ERROR_DURATION_SECONDS = 60 * 2     # Cache errors for 2 minutes
+ERROR_MARKER = "API_ERROR"                # Marker for general API errors
+
+ALPACA_CALL_DELAY_SECONDS = 0.3
+_last_alpaca_call_time = 0
+
+def _throttle_alpaca_call():
+    global _last_alpaca_call_time
+    now = time.monotonic()
+    time_since_last_call = now - _last_alpaca_call_time
+    if time_since_last_call < ALPACA_CALL_DELAY_SECONDS:
+        sleep_time = ALPACA_CALL_DELAY_SECONDS - time_since_last_call
+        logger.debug(f"Throttling Alpaca call. Sleeping for {sleep_time:.2f} seconds.")
+        time.sleep(sleep_time)
+    _last_alpaca_call_time = time.monotonic()
 
 def _get_from_cache(key: str) -> Optional[Any]:
-    """Checks cache for valid data."""
     if key in _cache:
         cached_item = _cache[key]
-        if time.time() - cached_item['timestamp'] < CACHE_DURATION_SECONDS:
-            logger.info(f"Cache hit for key: {key}")
-            return cached_item['data']
+
+        # Determine if the cached data IS the error marker string
+        is_cached_data_error_marker = (isinstance(cached_item['data'], str) and 
+                                       cached_item['data'] == ERROR_MARKER)
+
+        expiry_duration = CACHE_ERROR_DURATION_SECONDS if is_cached_data_error_marker else CACHE_SUCCESS_DURATION_SECONDS
+
+        if time.time() - cached_item['timestamp'] < expiry_duration:
+            if is_cached_data_error_marker:
+                logger.info(f"Cache hit for key: {key} (Value: ERROR_MARKER)")
+                return ERROR_MARKER
+            else:
+                logger.info(f"Cache hit for key: {key} (Value: Data)")
+                if isinstance(cached_item['data'], pd.DataFrame):
+                    return cached_item['data'].copy() 
+                return cached_item['data']
         else:
             logger.info(f"Cache expired for key: {key}")
-            del _cache[key] # Remove expired item
+            try:
+                del _cache[key]
+            except KeyError:
+                pass
     logger.info(f"Cache miss for key: {key}")
     return None
 
 def _set_cache(key: str, data: Any):
-    """Sets data in cache."""
-    if data is not None: # Don't cache None results (errors)
-         _cache[key] = {'timestamp': time.time(), 'data': data}
-         logger.info(f"Cached data for key: {key}")
+    if data is None: # Don't cache None
+        logger.debug(f"Not caching None result for key: {key}")
+        return
+
+    # Determine if the actual 'data' payload is the ERROR_MARKER
+    is_error_marker_being_cached = (isinstance(data, str) and data == ERROR_MARKER)
+    # ^^^ Check if 'data' is a string and specifically our ERROR_MARKER
+
+    cache_duration = CACHE_ERROR_DURATION_SECONDS if is_error_marker_being_cached else CACHE_SUCCESS_DURATION_SECONDS
+
+    _cache[key] = {'timestamp': time.time(), 'data': data}
+    status_message = "ERROR_MARKER" if is_error_marker_being_cached else "Data"
+    logger.info(f"Cached {status_message} for key: {key} (Duration: {cache_duration}s)")
+
 
 def get_current_price(symbol: str) -> Optional[float]:
-    """Fetches the latest available price for a given stock symbol using yfinance."""
-    cache_key = f"current_price_{symbol.upper()}"
-    cached_data = _get_from_cache(cache_key)
-    if cached_data is not None:
-        return float(cached_data) # Return cached float
+    """Fetches the latest trade price for a given stock symbol using Alpaca."""
+    if not stock_client: return None
+    upper_symbol = symbol.upper()
+    cache_key = f"alpaca_current_price_{upper_symbol}"
+    cached_value = _get_from_cache(cache_key)
+
+    if cached_value is not None:
+        return None if cached_value == ERROR_MARKER else float(cached_value)
+
+    logger.debug(f"Cache miss for {cache_key}, preparing Alpaca call for current price.")
+    _throttle_alpaca_call()
 
     try:
-        ticker = yf.Ticker(symbol.upper())
-        # Use fast_info for potentially quicker access to recent price data
-        last_price = ticker.fast_info.get('last_price')
+        request_params = StockLatestTradeRequest(symbol_or_symbols=upper_symbol)
+        latest_trade = stock_client.get_stock_latest_trade(request_params)
 
-        if last_price is not None:
-             price = float(last_price)
-             _set_cache(cache_key, price) # Cache the price
-             return price
+        if latest_trade and upper_symbol in latest_trade and latest_trade[upper_symbol]:
+            price = float(latest_trade[upper_symbol].price)
+            _set_cache(cache_key, price)
+            logger.info(f"Fetched current price for {upper_symbol}: {price}")
+            return price
         else:
-             # Fallback: Get the most recent closing price if fast_info didn't work
-             logger.warning(f"fast_info.last_price not available for {symbol}. Fetching history.")
-             hist = ticker.history(period="5d", interval="1d") # Fetch recent days
-             if not hist.empty:
-                 # Get the last available closing price
-                 last_close = hist['Close'].iloc[-1]
-                 price = float(last_close)
-                 _set_cache(cache_key, price) # Cache the fallback price
-                 return price
-             else:
-                 logger.warning(f"Could not retrieve current or recent closing price for {symbol} using yfinance.")
-                 return None
-
+            logger.warning(f"No latest trade data found for {upper_symbol} from Alpaca.")
+            _set_cache(cache_key, ERROR_MARKER) # Cache as error if no data
+            return None
     except Exception as e:
-        logger.error(f"yfinance error fetching current price for {symbol}: {e}", exc_info=False) # exc_info=False to avoid overly long tracebacks for common symbol errors
+        logger.error(f"Alpaca API error fetching current price for {upper_symbol}: {e}", exc_info=False)
+        _set_cache(cache_key, ERROR_MARKER) # Cache general errors
         return None
 
 def get_historical_data(
@@ -72,79 +125,115 @@ def get_historical_data(
     lookback_days: int = 252,
 ) -> Optional[pd.DataFrame]:
     """
-    Fetches daily historical data for a symbol using yfinance.
-    Returns a pandas DataFrame with columns renamed to match app expectations
-    (e.g., 'adjusted_close', 'volume', 'open', 'high', 'low') or None.
+    Fetches daily historical bars for a symbol using Alpaca from IEX feed.
+    Returns a pandas DataFrame with columns: 'open', 'high', 'low', 'adjusted_close', 'volume'.
     """
-    # Note: Caching DataFrames can use significant memory. Use cautiously or implement
-    # more robust caching if needed. For now, we cache based on symbol & lookback.
-    cache_key = f"hist_{symbol.upper()}_{lookback_days}d"
-    cached_data = _get_from_cache(cache_key)
-    if cached_data is not None:
-        # Ensure cached data is a DataFrame (might need serialization/deserialization for robust caching)
-         if isinstance(cached_data, pd.DataFrame):
-              return cached_data.copy() # Return a copy to prevent mutation issues
-         else:
-              logger.warning(f"Cache contained non-DataFrame for key {cache_key}. Refetching.")
+    if not stock_client:
+        logger.error("Alpaca stock_client not initialized. Cannot fetch historical data.")
+        return None
+    upper_symbol = symbol.upper()
+    cache_key = f"alpaca_hist_{upper_symbol}_{lookback_days}d_iex"
+    cached_value = _get_from_cache(cache_key)
 
+    if cached_value is not None:  # Cache hit
+        if cached_value == ERROR_MARKER:
+            logger.info(f"Cache hit with ERROR_MARKER for {cache_key}. Returning None.")
+            return None # It was a cached error
+        elif isinstance(cached_value, pd.DataFrame):
+            logger.info(f"Cache hit with DataFrame for {cache_key}. Returning copy.")
+            return cached_value.copy() # It was cached data, return a copy
+        else:
+            logger.warning(f"Cache hit with unexpected data type for {cache_key}: {type(cached_value)}. Treating as miss.")
+
+    # If cached_value was None (miss/expired) or an unexpected type, proceed to fetch:
+    logger.debug(f"Proceeding to fetch for {cache_key} (cache miss, expiry, or unexpected cached type).")
+    _throttle_alpaca_call()
 
     try:
-        ticker = yf.Ticker(symbol.upper())
+        end_dt = datetime.now()
+        start_dt = end_dt - timedelta(days=int(lookback_days * 1.7) + 15)
 
-        # Calculate start date (go back further to ensure enough trading days)
-        # Trading days approx 252/year. Calendar days ~365.
-        # Go back roughly 1.5x calendar days to account for weekends/holidays.
-        end_date = pd.Timestamp.today()
-        start_date = end_date - pd.Timedelta(days=int(lookback_days * 1.7)) # Fetch more days
+        logger.debug(f"Requesting bars for {upper_symbol} from {start_dt.date()} to {end_dt.date()} with feed IEX")
 
-        # Fetch historical data using yfinance
-        hist_df = ticker.history(start=start_date, end=end_date, interval="1d")
+        request_params = StockBarsRequest(
+            symbol_or_symbols=[upper_symbol],
+            timeframe=TimeFrame(amount=1, unit=TimeFrameUnit.Day),
+            start=start_dt,
+            end=end_dt,
+            feed=DataFeed.IEX
+        )
 
-        if hist_df.empty:
-            logger.warning(f"yfinance returned empty history for {symbol} for the period.")
+        bars_data_response = stock_client.get_stock_bars(request_params)
+        
+        logger.debug(f"Raw bars_data_response type for {upper_symbol}: {type(bars_data_response)}")
+
+        if not bars_data_response or not bars_data_response.data or upper_symbol not in bars_data_response.data:
+            logger.warning(f"No historical bar data returned in response for {upper_symbol} from Alpaca (IEX feed).")
+            _set_cache(cache_key, ERROR_MARKER)
             return None
 
-        # Use 'Adj Close' if available, otherwise fallback to 'Close'
-        if 'Adj Close' in hist_df.columns:
-            close_col = 'Adj Close'
-        elif 'Close' in hist_df.columns:
-            close_col = 'Close'
-        else:
-            logger.error(f"Neither 'Adj Close' nor 'Close' found in yfinance history for {symbol}")
+        bars_for_symbol = bars_data_response[upper_symbol] # This is List[Bar]
+
+        if not bars_for_symbol: # Check if the list itself is empty
+            logger.warning(f"Bar list is empty for {upper_symbol} from Alpaca response.")
+            _set_cache(cache_key, ERROR_MARKER)
             return None
 
-        # Select and rename columns to match what the rest of the app expects
-        # VaR service expects: 'open', 'high', 'low', 'adjusted_close', 'volume'
-        rename_map = {
-            'Open': 'open',
-            'High': 'high',
-            'Low': 'low',
-            close_col: 'adjusted_close', # Map chosen close column to 'adjusted_close'
-            'Volume': 'volume'
-        }
-        # Filter for columns we can potentially rename and drop others
-        cols_to_keep = [col for col in rename_map.keys() if col in hist_df.columns]
-        if not cols_to_keep:
-             logger.error(f"No usable columns found in yfinance history for {symbol}")
-             return None
+        data_for_df = [{
+            'timestamp': bar.timestamp,
+            'open': bar.open,
+            'high': bar.high,
+            'low': bar.low,
+            'close': bar.close,
+            'volume': bar.volume
+        } for bar in bars_for_symbol]
 
-        processed_df = hist_df[cols_to_keep].rename(columns=rename_map)
+        df = pd.DataFrame(data_for_df)
 
-        # Ensure index is datetime
-        processed_df.index = pd.to_datetime(processed_df.index)
-        processed_df = processed_df.sort_index(ascending=True)
+        if df.empty:
+            logger.warning(f"DataFrame created from Bar list is empty for {upper_symbol}.")
+            _set_cache(cache_key, ERROR_MARKER)
+            return None
+        
+        df = df.set_index('timestamp')
 
-        # Ensure required columns exist after rename
-        if 'adjusted_close' not in processed_df.columns:
-             logger.error(f"'adjusted_close' column missing after processing for {symbol}")
-             return None
+        logger.debug(f"DataFrame constructed for {upper_symbol}. Shape: {df.shape}. Columns: {df.columns.tolist()}. Index type: {type(df.index)}")
 
-        # Cache the processed DataFrame
-        _set_cache(cache_key, processed_df.copy())
+        # Rename columns
+        df = df.rename(columns={
+            'open': 'open',
+            'high': 'high',
+            'low': 'low',
+            'close': 'adjusted_close', # Using IEX close as 'adjusted_close'
+            'volume': 'volume'
+        })
 
-        return processed_df
+        expected_cols = ['open', 'high', 'low', 'adjusted_close', 'volume']
+        df = df[[col for col in expected_cols if col in df.columns]]
+
+        if 'adjusted_close' not in df.columns:
+            logger.error(f"'adjusted_close' (from 'close') column missing after processing for {upper_symbol}.")
+            _set_cache(cache_key, ERROR_MARKER)
+            return None
+
+        df = df.sort_index(ascending=True)
+        
+        for col in df.columns:
+            if col not in ['symbol']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        df = df.dropna(subset=['adjusted_close'])
+
+        if df.empty:
+            logger.warning(f"DataFrame empty after cleaning for {upper_symbol}.")
+            _set_cache(cache_key, ERROR_MARKER)
+            return None
+            
+        logger.info(f"Successfully processed historical data for {upper_symbol}. Shape: {df.shape}")
+        _set_cache(cache_key, df.copy())
+        return df.copy()
 
     except Exception as e:
-        logger.error(f"yfinance error fetching historical data for {symbol}: {e}", exc_info=False)
+        logger.error(f"Alpaca API error or processing error fetching historical data for {upper_symbol}: {e}", exc_info=True)
+        _set_cache(cache_key, ERROR_MARKER)
         return None
-    

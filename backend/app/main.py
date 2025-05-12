@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         check_pending_orders_job,
         trigger='interval',
-        minutes=1,
+        minutes=5,
         id='pending_order_check_job',
         name='Check and Execute Pending Limit Orders',
         replace_existing=True
@@ -46,7 +46,7 @@ if FRONTEND_ORIGIN:
     origins.append(FRONTEND_ORIGIN)
 else:
     print("WARNING: FRONTEND_ORIGIN environment variable not set. CORS might block frontend requests.")
-    # origins.append("http://localhost:3000") # Uncomment for local testing
+    origins.append("http://localhost:3000") # Uncomment for local testing
 
 app.add_middleware(
     CORSMiddleware,
