@@ -46,7 +46,7 @@ if FRONTEND_ORIGIN:
     origins.append(FRONTEND_ORIGIN)
 else:
     print("WARNING: FRONTEND_ORIGIN environment variable not set. CORS might block frontend requests.")
-    origins.append("http://localhost:3000") # Uncomment for local testing
+    # origins.append("http://localhost:3000") # Uncomment for local testing
 
 app.add_middleware(
     CORSMiddleware,
