@@ -135,13 +135,15 @@ def get_historical_data(
     cache_key = f"alpaca_hist_{upper_symbol}_{lookback_days}d_iex"
     cached_value = _get_from_cache(cache_key)
 
-    if cached_value is not None:  # Cache hit
-        if cached_value == ERROR_MARKER:
+    if cached_value is not None:  # A value was found in cache
+        # First, check if the cached value is the specific ERROR_MARKER string
+        if isinstance(cached_value, str) and cached_value == ERROR_MARKER:
             logger.info(f"Cache hit with ERROR_MARKER for {cache_key}. Returning None.")
-            return None # It was a cached error
+            return None
+        # Next, check if it's a DataFrame 
         elif isinstance(cached_value, pd.DataFrame):
             logger.info(f"Cache hit with DataFrame for {cache_key}. Returning copy.")
-            return cached_value.copy() # It was cached data, return a copy
+            return cached_value.copy()
         else:
             logger.warning(f"Cache hit with unexpected data type for {cache_key}: {type(cached_value)}. Treating as miss.")
 
