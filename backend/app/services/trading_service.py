@@ -8,8 +8,8 @@ from app.models.enums import OrderType, OrderStatus
 from app.schemas.order import OrderCreate
 from app.schemas.trade import Trade as TradeSchema
 from app.schemas.pending_order import PendingOrder as PendingOrderSchema
-from app.crud import crud_account, crud_holding, crud_trade, crud_pending_order, crud_user
-from app.services import market_data_service
+from app.crud import crud_account, crud_holding, crud_trade, crud_pending_order, crud_user, crud_portfolio_snapshot
+from app.services import market_data_service, portfolio_service
 from fastapi import HTTPException, status
 import decimal
 import logging
@@ -85,6 +85,7 @@ def place_order(db: Session, user: User, order: OrderCreate) -> Union[Trade, Pen
 
             # Perform the actual execution and DB updates
             db_trade = _execute_trade_updates(db, user, symbol, quantity, execution_price, execution_type)
+            _record_portfolio_snapshot(db=db, user_id=user.id)
             db.commit() # Commit the transaction for market order
             logger.info(f"User {user.id} Market {execution_type.value} {quantity} {symbol} @ {execution_price:.2f}")
             return db_trade
@@ -244,6 +245,8 @@ def _check_and_execute_logic(db: Session) -> Dict[str, int]:
             # Update the pending order status to EXECUTED
             crud_pending_order.update_pending_order_status(db=db, db_order=order, status=OrderStatus.EXECUTED)
 
+            _record_portfolio_snapshot(db=db, user_id=order.user_id)
+
             db.commit() # Commit transaction for THIS successful order execution
             executed_count += 1
             logger.info(f"Successfully executed pending order {order.id}. Trade ID: {executed_trade.id}")
@@ -278,3 +281,29 @@ def check_pending_orders_job():
         if db:
             db.close() # Ensure the session is always closed
             logger.info("Database session closed for scheduler job.")
+
+def _record_portfolio_snapshot(db: Session, user_id: int):
+    """
+    Calculates the current total portfolio value and records a snapshot.
+    This should be called within an existing database transaction.
+    """
+    try:
+        user = crud_user.get_user(db=db, user_id=user_id)
+        if not user:
+            logger.error(f"Could not record portfolio snapshot: User {user_id} not found.")
+            return
+
+        # Get the current portfolio details (which calculates total_portfolio_value)
+        current_portfolio_details = portfolio_service.get_portfolio(db=db, user=user)
+        total_value = current_portfolio_details.total_portfolio_value
+
+        # Create the snapshot
+        snapshot = crud_portfolio_snapshot.create_portfolio_snapshot(
+            db=db,
+            user_id=user_id,
+            total_value=total_value
+        )
+        logger.info(f"Portfolio snapshot recorded for user {user_id}. Value: {total_value:.2f}, Snapshot ID: {snapshot.id}")
+
+    except Exception as e:
+        logger.error(f"Failed to record portfolio snapshot for user {user_id}: {e}", exc_info=True)

@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 from app.db.session import get_db
 from app.schemas.portfolio import Portfolio as PortfolioSchema
 from app.schemas.trade import Trade as TradeSchema
+from app.schemas.portfolio_snapshot import PortfolioSnapshotResponse
 from app.services import portfolio_service, risk_service
-from app.crud import crud_trade
+from app.crud import crud_trade, crud_portfolio_snapshot
 from app.core.security import get_current_active_user
 from app.models.user import User as UserModel
 import decimal
@@ -69,3 +71,29 @@ def get_portfolio_var(
          var_result["portfolio_value"] = float(var_result["portfolio_value"])
 
     return var_result
+
+@router.get(
+    "/value-history",
+    response_model=List[PortfolioSnapshotResponse],
+    summary="Get user's historical portfolio values"
+)
+def get_portfolio_value_history(
+    start_date: Optional[datetime] = Query(None, description="Filter from this date (ISO format, e.g., YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DD)"),
+    end_date: Optional[datetime] = Query(None, description="Filter up to this date (ISO format)"),
+    limit: Optional[int] = Query(1000, description="Maximum number of data points to return", gt=0), # Default limit, must be > 0
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_active_user)
+):
+    """
+    Retrieves a list of historical total portfolio values for the logged-in user,
+    ordered by time. Useful for plotting portfolio performance.
+    """
+    snapshots = crud_portfolio_snapshot.get_portfolio_snapshots_for_user(
+        db=db,
+        user_id=current_user.id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit
+    )
+    # Pydantic will automatically convert the list of ORM objects to list of PortfolioSnapshotResponse
+    return snapshots

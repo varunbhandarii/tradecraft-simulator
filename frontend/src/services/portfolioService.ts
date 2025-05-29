@@ -36,6 +36,11 @@ export interface TradeResponse {
   user_id: number;
 }
 
+export interface PortfolioSnapshotResponse {
+  timestamp: string;
+  total_value: number;
+}
+
 export const fetchPortfolio = async (): Promise<PortfolioResponse> => {
   try {
     const response = await apiClient.get<PortfolioResponse>('/portfolio');
@@ -92,6 +97,28 @@ export const fetchTradeHistory = async (
     console.error("Failed to fetch", error);
     let errorMessage = 'Failed to load portfolio data.';
      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+    } else if (error instanceof Error) {
+        errorMessage = error.message;
+    }
+    throw new Error(errorMessage);
+  }
+};
+
+export const fetchPortfolioValueHistory = async (
+  limit: number = 365 // Default to fetching up to a year of daily snapshots
+): Promise<PortfolioSnapshotResponse[]> => {
+  try {
+    const response = await apiClient.get<PortfolioSnapshotResponse[]>('/portfolio/value-history', {
+      params: {
+        limit: limit,
+      },
+    });
+    return response.data;
+  } catch (error: unknown) {
+    console.error("Failed to fetch portfolio value history:", error);
+    let errorMessage = 'Failed to load portfolio value history.';
+    if (axios.isAxiosError(error) && error.response?.data?.detail) {
         errorMessage = error.response.data.detail;
     } else if (error instanceof Error) {
         errorMessage = error.message;
