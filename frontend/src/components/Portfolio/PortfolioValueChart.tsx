@@ -13,6 +13,8 @@ import {
   Legend,
   TimeScale,     // For time-based x-axis
   Filler,        // For area fill under line
+  type ChartOptions,
+  type TooltipItem
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { format } from 'date-fns'; // For formatting dates in tooltips/axes
@@ -47,6 +49,7 @@ interface ChartDataState {
 }
 
 const PortfolioValueChart: React.FC = () => {
+  const [historyData, setHistoryData] = useState<PortfolioSnapshotResponse[]>([]);
   const [chartData, setChartData] = useState<ChartDataState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,22 +59,26 @@ const PortfolioValueChart: React.FC = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const historyData = await fetchPortfolioValueHistory(365); // Fetch last 365 snapshots
+        // Type the fetched data
+        const fetchedHistory: PortfolioSnapshotResponse[] = await fetchPortfolioValueHistory(365);
 
-        if (!historyData || historyData.length === 0) {
+        if (!fetchedHistory || fetchedHistory.length === 0) {
           setError("No portfolio history data available to display.");
           setChartData(null);
+          setHistoryData([]);
           return;
         }
+        
+        setHistoryData(fetchedHistory);
 
-        historyData.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        fetchedHistory.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
         setChartData({
-          labels: historyData.map(item => format(new Date(item.timestamp), 'MMM dd, yyyy')),
+          labels: fetchedHistory.map(item => format(new Date(item.timestamp), 'MMM dd, yyyy')),
           datasets: [
             {
               label: 'Portfolio Value',
-              data: historyData.map(item => item.total_value),
+              data: fetchedHistory.map(item => item.total_value),
               borderColor: 'rgb(79, 70, 229)',
               backgroundColor: 'rgba(79, 70, 229, 0.1)',
               tension: 0.1,
@@ -94,7 +101,7 @@ const PortfolioValueChart: React.FC = () => {
     loadChartData();
   }, []);
 
-  const options = {
+  const options: ChartOptions<'line'> = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -115,7 +122,7 @@ const PortfolioValueChart: React.FC = () => {
         mode: 'index' as const,
         intersect: false,
         callbacks: {
-          label: function (context: any) {
+          label: function (context: TooltipItem<'line'>) {
             let label = context.dataset.label || '';
             if (label) {
               label += ': ';
@@ -125,7 +132,7 @@ const PortfolioValueChart: React.FC = () => {
             }
             return label;
           },
-          title: function(tooltipItems: any[]) {
+          title: function(tooltipItems: TooltipItem<'line'>[]) {
             // tooltipItems is an array, use the first item for the date
             if (tooltipItems.length > 0) {
                 const item = tooltipItems[0];
@@ -214,7 +221,7 @@ const PortfolioValueChart: React.FC = () => {
         Portfolio Performance Over Time
       </h3>
       <div className="h-72 md:h-96">
-        <Line options={options as any} data={chartData} />
+        <Line options={options} data={chartData} />
       </div>
     </div>
   );

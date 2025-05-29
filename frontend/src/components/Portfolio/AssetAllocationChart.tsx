@@ -8,6 +8,8 @@ import {
   Tooltip,
   Legend,
   Title,
+  type ChartOptions,
+  type TooltipItem
 } from 'chart.js';
 import { HoldingResponse } from '@/services/portfolioService';
 import { formatCurrency } from '@/utils/formatting';
@@ -92,7 +94,7 @@ const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({ holdings, i
       },
       tooltip: {
         callbacks: {
-          label: function (context: any) {
+          label: function (context: TooltipItem<'pie'>) {
             let label = context.label || '';
             if (label) {
               label += ': ';
@@ -127,7 +129,7 @@ const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({ holdings, i
 
     return (
       <div className="h-64 md:h-80 relative">
-        <Pie data={chartData} options={options as any} />
+        <Pie data={chartData} options={options} />
       </div>
     );
   };
