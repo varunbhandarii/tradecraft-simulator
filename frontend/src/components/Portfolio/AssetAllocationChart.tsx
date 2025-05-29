@@ -8,8 +8,7 @@ import {
   Tooltip,
   Legend,
   Title,
-  type ChartOptions,
-  type TooltipItem
+  type ChartOptions
 } from 'chart.js';
 import { HoldingResponse } from '@/services/portfolioService';
 import { formatCurrency } from '@/utils/formatting';
@@ -83,39 +82,36 @@ const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({ holdings, i
       legend: {
         position: 'right' as const,
         labels: {
-          color: '#4B5563',
-          font: { size: 12 },
-          boxWidth: 20,
-          padding: 20,
+            color: '#4B5563',
+            font: { size: 12 },
+            boxWidth: 20,
+            padding: 20,
         }
       },
       title: {
         display: false,
       },
+      /* eslint-disable @typescript-eslint/no-explicit-any */
       tooltip: {
         callbacks: {
-          label: function (context: TooltipItem<'pie'>) {
+          label: function (context: any) {
             let label = context.label || '';
             if (label) {
               label += ': ';
             }
-            const value = context.raw as number;
+            const value = context.raw;
             if (value !== null) {
-              label += formatCurrency(value);
+              label += formatCurrency(value as number);
             }
-
-            const datasetData = context.chart.data.datasets[0].data;
             // Calculate percentage
-            const total = datasetData.reduce((sum: number, currentValue: any) => {
-              const numValue = (typeof currentValue === 'number' && !isNaN(currentValue)) ? currentValue : 0;
-              return sum + numValue;
-            }, 0);
+            const total = context.chart.data.datasets[0].data.reduce((sum: number, val: number) => sum + val, 0);
             const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : 0;
             label += ` (${percentage}%)`;
             return label;
           },
         },
       },
+      /* eslint-enable @typescript-eslint/no-explicit-any */
     },
   };
 
