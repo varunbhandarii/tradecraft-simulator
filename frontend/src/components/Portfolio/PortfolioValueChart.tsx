@@ -49,7 +49,6 @@ interface ChartDataState {
 }
 
 const PortfolioValueChart: React.FC = () => {
-  const [historyData, setHistoryData] = useState<PortfolioSnapshotResponse[]>([]);
   const [chartData, setChartData] = useState<ChartDataState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,11 +64,8 @@ const PortfolioValueChart: React.FC = () => {
         if (!fetchedHistory || fetchedHistory.length === 0) {
           setError("No portfolio history data available to display.");
           setChartData(null);
-          setHistoryData([]);
           return;
         }
-        
-        setHistoryData(fetchedHistory);
 
         fetchedHistory.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 

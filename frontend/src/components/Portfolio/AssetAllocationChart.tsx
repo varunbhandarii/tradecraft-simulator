@@ -76,7 +76,7 @@ const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({ holdings, i
     }
   }, [holdings]);
 
-  const options = {
+  const options: ChartOptions<'pie'> = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
