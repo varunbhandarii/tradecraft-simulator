@@ -83,10 +83,10 @@ const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({ holdings, i
       legend: {
         position: 'right' as const,
         labels: {
-            color: '#4B5563',
-            font: { size: 12 },
-            boxWidth: 20,
-            padding: 20,
+          color: '#4B5563',
+          font: { size: 12 },
+          boxWidth: 20,
+          padding: 20,
         }
       },
       title: {
@@ -99,12 +99,17 @@ const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({ holdings, i
             if (label) {
               label += ': ';
             }
-            const value = context.raw;
+            const value = context.raw as number;
             if (value !== null) {
-              label += formatCurrency(value as number);
+              label += formatCurrency(value);
             }
+
+            const datasetData = context.chart.data.datasets[0].data;
             // Calculate percentage
-            const total = context.chart.data.datasets[0].data.reduce((sum: number, val: number) => sum + val, 0);
+            const total = datasetData.reduce((sum: number, currentValue: any) => {
+              const numValue = (typeof currentValue === 'number' && !isNaN(currentValue)) ? currentValue : 0;
+              return sum + numValue;
+            }, 0);
             const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : 0;
             label += ` (${percentage}%)`;
             return label;
