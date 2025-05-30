@@ -6,6 +6,7 @@ from app.models.holding import Holding
 from app.models.trade import Trade
 from app.models.pending_order import PendingOrder
 from app.models.portfolio_snapshot import PortfolioSnapshot
+from app.models.watchlist_item import WatchlistItem
 
 import os
 from dotenv import load_dotenv

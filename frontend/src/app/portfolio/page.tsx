@@ -9,6 +9,7 @@ import OrderForm from '@/components/Trading/OrderForm';
 import PendingOrdersTable from '@/components/Trading/PendingOrdersTable';
 import PortfolioValueChart from '@/components/Portfolio/PortfolioValueChart';
 import AssetAllocationChart from '@/components/Portfolio/AssetAllocationChart';
+import WatchlistDisplay from '@/components/Watchlist/WatchlistDisplay';
 import { fetchPortfolio, fetchVaR, PortfolioResponse, VaRResponse } from '@/services/portfolioService';
 import { fetchPendingOrders, cancelPendingOrder, PendingOrderResponse } from '@/services/tradingService';
 import { useAuth } from '@/context/AuthContext';
@@ -131,6 +132,11 @@ export default function PortfolioPage() {
           <div className="space-y-6">
             <RiskInfo data={varData} isLoading={isLoading} />
           </div>
+        </div>
+
+        {/* Watchlist Section */}
+        <div className="mt-8 pt-8 border-t border-gray-200">
+          <WatchlistDisplay />
         </div>
 
         {/* Analytics Section */}

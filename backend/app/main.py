@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.services.trading_service import check_pending_orders_job
-from app.api.endpoints import auth, users, market, trading, portfolio
+from app.services.daily_snapshot_service import daily_snapshot_job
+from app.api.endpoints import auth, users, market, trading, portfolio, watchlist
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
@@ -20,6 +21,17 @@ async def lifespan(app: FastAPI):
         minutes=5,
         id='pending_order_check_job',
         name='Check and Execute Pending Limit Orders',
+        replace_existing=True
+    )
+
+    scheduler.add_job(
+        daily_snapshot_job,
+        trigger='cron',
+        hour=22,
+        minute=0,
+        timezone='UTC',
+        id='daily_portfolio_snapshot_job',
+        name='Generate Daily Portfolio Snapshots',
         replace_existing=True
     )
     scheduler.start()
@@ -46,7 +58,7 @@ if FRONTEND_ORIGIN:
     origins.append(FRONTEND_ORIGIN)
 else:
     print("WARNING: FRONTEND_ORIGIN environment variable not set. CORS might block frontend requests.")
-    origins.append("http://localhost:3000") # Uncomment for local testing
+    # origins.append("http://localhost:3000") # Uncomment for local testing
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,6 +76,7 @@ app.include_router(users.router, prefix=f"{api_prefix}/users", tags=["Users"])
 app.include_router(market.router, prefix=f"{api_prefix}/market", tags=["Market Data"])
 app.include_router(trading.router, prefix=f"{api_prefix}/trading", tags=["Trading"])
 app.include_router(portfolio.router, prefix=f"{api_prefix}/portfolio", tags=["Portfolio"])
+app.include_router(watchlist.router, prefix=f"{api_prefix}/watchlist", tags=["Watchlist"])
 
 
 # --- Root endpoint ---

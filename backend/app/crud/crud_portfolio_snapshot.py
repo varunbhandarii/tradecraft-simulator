@@ -7,21 +7,26 @@ from typing import List, Optional
 def create_portfolio_snapshot(
     db: Session,
     user_id: int,
-    total_value: decimal.Decimal
+    total_value: decimal.Decimal,
+    snapshot_timestamp: Optional[datetime] = None
 ) -> PortfolioSnapshot:
     """
     Creates a new portfolio snapshot for a user.
-    Does NOT commit the transaction.
     """
+    if snapshot_timestamp and snapshot_timestamp.tzinfo is None:
+        snapshot_timestamp = snapshot_timestamp.replace(tzinfo=timezone.utc)
+
     db_snapshot = PortfolioSnapshot(
         user_id=user_id,
-        total_value=total_value
-        # timestamp is handled by server_default
+        total_value=total_value,
+        # Only set timestamp if provided, otherwise let server_default work
+        **(dict(timestamp=snapshot_timestamp) if snapshot_timestamp else {})
     )
     db.add(db_snapshot)
-    db.flush()  # Allow accessing db_snapshot.id or timestamp if needed within the same transaction
-    db.refresh(db_snapshot) # Load server-generated values like id and timestamp
+    db.flush()
+    db.refresh(db_snapshot)
     return db_snapshot
+
 
 def get_portfolio_snapshots_for_user(
     db: Session,
