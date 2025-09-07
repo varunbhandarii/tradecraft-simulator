@@ -13,7 +13,9 @@ from app.core.security import get_current_active_user
 from app.core.config import SNAPSHOT_TRIGGER_KEY
 from app.models.user import User as UserModel
 import decimal
+import logging
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -114,6 +116,11 @@ def trigger_daily_snapshots_endpoint(
     Triggers the generation of end-of-day portfolio snapshots.
     This endpoint is intended to be called by a trusted scheduler (like Google Cloud Scheduler).
     """
+
+    logger.warning(f"Received X-Trigger-Key header: '{x_trigger_key}'")
+    # Log the first 5 characters of the key loaded from Secret Manager
+    logger.warning(f"Expected SNAPSHOT_TRIGGER_KEY (first 5 chars): '{SNAPSHOT_TRIGGER_KEY[:5] if SNAPSHOT_TRIGGER_KEY else 'None'}'")
+
     if not SNAPSHOT_TRIGGER_KEY or x_trigger_key != SNAPSHOT_TRIGGER_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
