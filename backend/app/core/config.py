@@ -13,6 +13,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30 # JWT token validity period
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID")
 ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY")
 ALPACA_PAPER_TRADING = os.getenv("ALPACA_PAPER_TRADING", "true").lower() == "true"
+SNAPSHOT_TRIGGER_KEY = os.getenv("SNAPSHOT_TRIGGER_KEY")
 
 if not ALPACA_API_KEY_ID:
     print("WARNING: ALPACA_API_KEY_ID environment variable not set.")

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -7,10 +7,13 @@ from app.schemas.portfolio import Portfolio as PortfolioSchema
 from app.schemas.trade import Trade as TradeSchema
 from app.schemas.portfolio_snapshot import PortfolioSnapshotResponse
 from app.services import portfolio_service, risk_service
+from app.services import daily_snapshot_service
 from app.crud import crud_trade, crud_portfolio_snapshot
 from app.core.security import get_current_active_user
+from app.core.config import SNAPSHOT_TRIGGER_KEY
 from app.models.user import User as UserModel
 import decimal
+
 
 router = APIRouter()
 
@@ -97,3 +100,31 @@ def get_portfolio_value_history(
     )
     # Pydantic will automatically convert the list of ORM objects to list of PortfolioSnapshotResponse
     return snapshots
+
+@router.post(
+    "/snapshots/trigger-daily",
+    summary="Manually trigger daily portfolio snapshot generation (for scheduler)",
+    tags=["Portfolio", "Admin"]
+)
+def trigger_daily_snapshots_endpoint(
+    x_trigger_key: str = Header(None, description="A secret key to authorize this endpoint call"), # <-- Require the header
+    db: Session = Depends(get_db)
+):
+    """
+    Triggers the generation of end-of-day portfolio snapshots.
+    This endpoint is intended to be called by a trusted scheduler (like Google Cloud Scheduler).
+    """
+    if not SNAPSHOT_TRIGGER_KEY or x_trigger_key != SNAPSHOT_TRIGGER_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing trigger key."
+        )
+
+    try:
+        result = daily_snapshot_service.generate_daily_snapshots_for_relevant_users(db=db)
+        return {"message": "Daily snapshot generation triggered successfully.", "details": result}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred during snapshot generation: {str(e)}"
+        )
