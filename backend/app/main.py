@@ -24,16 +24,7 @@ async def lifespan(app: FastAPI):
         replace_existing=True
     )
 
-    scheduler.add_job(
-        daily_snapshot_job,
-        trigger='cron',
-        hour=22,
-        minute=0,
-        timezone='UTC',
-        id='daily_portfolio_snapshot_job',
-        name='Generate Daily Portfolio Snapshots',
-        replace_existing=True
-    )
+    
     scheduler.start()
     print("INFO:     Scheduler started with pending order check job.")
 
